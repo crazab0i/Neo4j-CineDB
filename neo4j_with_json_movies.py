@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import os
 import time
 
+
 def welcome():
     print("""
 __        __         _                                       _____         
@@ -37,7 +38,7 @@ def connect_to_neo4J_DB():
     print("Connection Sucessful!!!")
     
 
-def main_menu_selection():
+def main_menu_selection(updated_results):
     user_choice = input(
     """
     Please Select An Option: \n
@@ -48,11 +49,13 @@ def main_menu_selection():
     if user_choice not in ['1', '2', '3']:
         print("\nERROR ~~~ Invalid Choice!!! ~~~ ERROR\n")
         
-    
     if user_choice == '1':
         add_movie_to_db()
+        print("Updating the DB Stats")
+        updated_results = load_neo4j_stats()
+        print("Sucessfully Updated!!!")
     if user_choice == '2':
-        pass
+        CineGPT(updated_results)
     if user_choice == '3':
         driver.close()
         return True
@@ -152,15 +155,18 @@ def add_movie_to_db():
     print(f"Sucess Rate: {((total_count - error_count) / total_count) * 100:.2f}%\n")
     print(f"Failed to Add These Movies: {films_with_error}\n")
 
+
 def user_movie_input():
     film_names = input("Enter the name of the film you want to add or comma seperated values for the titles: \n\n")
     film_array = [film.strip() for film in film_names.split(',')]
     return film_array
 
+
 def construct_url(title: str):
     api_key = os.getenv("OMDB_API_KEY")
     url = f"https://www.omdbapi.com/?t={title}&apikey={api_key}"
     return url
+
 
 def batch_insert(tx, batch_data):
     query = """
@@ -201,15 +207,55 @@ def batch_insert(tx, batch_data):
     """
     tx.run(query, batch_data=batch_data)
 
+
+
+def CineGPT(updated_results):
+    get_neo4j_stats(updated_results)
+
+def load_neo4j_stats():
+    query = """
+    MATCH (n) WITH COUNT(n) AS totalNodes
+    MATCH (m:Movie) WITH totalNodes, COUNT(m) AS totalMovies
+    MATCH (a:Actor) WITH totalNodes, totalMovies, COUNT(a) AS totalActors
+    MATCH (g:Genre) WITH totalNodes, totalMovies, totalActors, COUNT(g) AS totalGenres
+    MATCH (ry:ReleaseYear) WITH totalNodes, totalMovies, totalActors, totalGenres, COUNT(ry) AS totalYears
+    MATCH (l:Language) WITH totalNodes, totalMovies, totalActors, totalGenres, totalYears, COUNT(l) AS totalLanguages
+    MATCH (coo:CountryOfOrigin)
+    RETURN totalNodes, totalMovies, totalActors, totalGenres, totalYears, totalLanguages, COUNT(coo) AS totalCountries
+    """
+
+    with driver.session() as session:
+        result = session.run(query)
+        return result.single()
+
+def get_neo4j_stats(result):
+    total_nodes = result["totalNodes"]
+    total_movies = result["totalMovies"]
+    total_actors = result["totalActors"]
+    total_genres = result["totalGenres"]
+    total_years = result["totalYears"]
+    total_languages = result["totalLanguages"]
+    total_countries = result["totalCountries"]
+    print(f"""\nLoaded {total_nodes} Nodes And {total_movies} Movies. \n
+    Also Loaded: \n
+          {total_actors} Actors
+          {total_genres} Genres
+          {total_years} Years
+          {total_languages} Languages
+          {total_countries} Countries
+""")
+
+
 def main():
     welcome()
+    print("Connecting to DB)")
     connect_to_neo4J_DB()
+    print("Loading DB")
+    updated_results = load_neo4j_stats()
+    print("DB Loaded!!!")
     while True:
-        if main_menu_selection():
+        if main_menu_selection(updated_results):
             break
         
-        
-
-
 if __name__ == "__main__":
     main()
