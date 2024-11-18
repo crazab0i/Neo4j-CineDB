@@ -64,7 +64,6 @@ def add_movie_to_db():
     error_count = 0
     total_count = len(film_array)
     films_with_error = []
-    film_already_exist_count = 0
     batch_data = []
 
     overall_start = time.time()
@@ -150,7 +149,6 @@ def add_movie_to_db():
 
     overall_end = time.time()
     print(f"Overall Time: {overall_end - overall_start:.2f} Seconds\n")
-    print(f"Number of Films Already In DB: {film_already_exist_count}\n")
     print(f"Sucess Rate: {((total_count - error_count) / total_count) * 100:.2f}%\n")
     print(f"Failed to Add These Movies: {films_with_error}\n")
 
