@@ -180,6 +180,16 @@ def add_movie_to_db_manual():
 def add_movie_to_db_csv():
     file_location_input = input("CSV File Locaiton: \n")
     batch_size_input = input("Input Batch Size (default: 5000): \n")
+    try:
+        batch_size_input_int = int(batch_size_input)
+    except:
+        batch_size_input = 5000
+    
+    batch_data = []
+    error_count = 0
+    total_count = 0
+    films_with_error = []
+    
     
 
 
