@@ -313,8 +313,7 @@ def query_restructuring(user_input, model, debug):
         When querying properties, exclude values of "N/A"
         Output only the Cypher Query and nothing else please
         Since all properties are names you have to convert values like BOX_OFFICE are stored as comma seperated strings, e.g., "1,000,000"
-        Comparisons with years have to be enclosed with paranthesis, e.g., ReleaseYear > "2020"
-         
+        Comparisons with nodes or properties like ReleaseYear.name or .IMDB_RATING have to be enclosed with parenthesis, e.g., ReleaseYear > "2020", IMDB_RATING > "8.0"         
         EXAMPLES:
         1. user query: "What are the 10 highest rotten tomatoes and imdb christian bale movies"
         cypher query: MATCH (a:Actor)-[:ACTED_IN]->(m:Movie)
