@@ -8,6 +8,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
+import re
 
 def welcome():
     print("""
@@ -41,24 +42,30 @@ def connect_to_neo4J_DB():
     print("Connection Sucessful!!!")
     
 
-def main_menu_selection(updated_results):
+def main_menu_selection(updated_results, debug):
     user_choice = input(
     """
     Please Select An Option: \n
     1 - Add A Movie To The DB \n
     2 - Ask A Question To CineGPT \n
     3 - Quit \n
+    d - To Toggle Debug Mode\n
     """)
-    if user_choice not in ['1', '2', '3']:
+    if user_choice not in ['1', '2', '3', 'd']:
         print("\nERROR ~~~ Invalid Choice!!! ~~~ ERROR\n")
-        
+
+    if user_choice == 'd':
+        debug = True
+        print("Changed debug")
+
     if user_choice == '1':
         add_movie_to_db()
         print("Updating the DB Stats")
         updated_results = load_neo4j_stats()
         print("Sucessfully Updated!!!")
     if user_choice == '2':
-        CineGPT(updated_results)
+        CineGPT(updated_results, debug)
+    
     if user_choice == '3':
         driver.close()
         return True
@@ -212,12 +219,13 @@ def batch_insert(tx, batch_data):
 
 
 
-def CineGPT(updated_results):
+def CineGPT(updated_results, debug):
     get_neo4j_stats(updated_results)
     model = load_langchain_api()
     user_cinegpt_input = input("What question would you like to ask CineGPT?: \n")
-    query_restructuring(user_cinegpt_input, model)
-
+    cleaned_user_query = query_restructuring(user_cinegpt_input, model, debug)
+    complete_output = query_db_and_create_output(cleaned_user_query, user_cinegpt_input, model, debug)
+    print(f"\n{complete_output}")
 
 
 
@@ -267,9 +275,9 @@ def load_langchain_api():
     except:
         print("\nERROR ~~~ AI ENVIRONMENT FILE FAILURE ~~~ ERROR\n")
     
-def query_restructuring(user_input, model):
+def query_restructuring(user_input, model, debug):
     restructured_query_template = ChatPromptTemplate([
-        ("system", """You are a helpful assistant that rewrites user queries to cypher queries for a movie database in neo4j.
+        ("system", """
          You are a helpful assistant that rewrites user queries into Cypher queries for a Neo4j movie database. 
         Include both nodes, relationships, and relevant properties in the queries. Use a default limit of 10 if the user does not specify.
         
@@ -280,7 +288,7 @@ def query_restructuring(user_input, model):
         - Language: (name)
         - Director: (name)
         - CountryOfOrigin: (name)
-        - ReleaseYear: (year)
+        - ReleaseYear: (year) # Inequality with year requires quotes around it, eg ReleaseYear > "2020"
         - MovieRating: (name)
 
         - Relationship Types:
@@ -292,31 +300,80 @@ def query_restructuring(user_input, model):
         - MOVIE_RATING
         - HAS_LANGUAGE
 
-        - Relationship Directions:
+        - Relationship Directions (Relations only go in one direction):
         - (a:Actor)-[:ACTED_IN]->(m:Movie)
-        - (m:Movie)-[:DIRECTED_BY]->(d:Director)
+        - (m:Movie)-[:DIRECTED_BY]->(d:Director) # This relationship must always be directed from Movie to Director
         - (m:Movie)-[:HAS_GENRE]->(g:Genre)
         - (m:Movie)-[:RELEASE_YEAR]->(ry:ReleaseYear)
         - (m:Movie)-[:COUNTRY_OF_ORIGIN]->(coo:CountryOfOrigin)
         - (m:movie)-[:MOVIE_RATING]->(r:MovieRating)
         - (m:Movie)-[r:HAS_LANGUAGE]->(l:Language)
          
-        Examples:
-        1. User Query: "Find  25 movies released in 2020."
-        Cypher Query: MATCH (m:Movie)-[:RELEASE_YEAR]->(y:ReleaseYear) WHERE y.year="2020" RETURN m.name LIMIT 25
-        2. User Query: "List actors who acted in comedy movies with IMDB rating above 8."
-        Cypher Query: MATCH (a:Actor)-[:ACTED_IN]->(m:Movie {{IMDB_RATING: '8.0'}})-[:HAS_GENRE]->(g:Genre {{name: "Comedy"}}) RETURN a.name LIMIT 10
-        3. User Query: "Find movies directed by Christopher Nolan."
-        Cypher Query: MATCH (m:Movie)-[:DIRECTED_BY]->(d:Director {{name: "Christopher Nolan"}}) RETURN m.name LIMIT 10
-        4. User Query: "When was the movie Dunkirk by Christopher Nolan released?"
-         Cypber Query: MATCH (m:Movie {{name: "Dunkirk"}})-[:DIRECTED_BY]->(d:Director {{name: "Christopher Nolan"}}), 
-            (m)-[:RELEASE_YEAR]->(y:ReleaseYear)
-            RETURN y.year
+        If you use EXISTS, use IS NOT NULL instead
+        When querying properties, exclude values of "N/A"
+        Output only the Cypher Query and nothing else please
+        Since all properties are names you have to convert values like BOX_OFFICE are stored as comma seperated strings, e.g., "1,000,000"
+        Comparisons with years have to be enclosed with paranthesis, e.g., ReleaseYear > "2020"
+         
+        EXAMPLES:
+        1. user query: "What are the 10 highest rotten tomatoes and imdb christian bale movies"
+        cypher query: MATCH (a:Actor)-[:ACTED_IN]->(m:Movie)
+            WHERE a.name = "Christian Bale" 
+            AND m.ROTTEN_TOMATOES IS NOT NULL 
+            AND m.IMDB_RATING IS NOT NULL
+            RETURN m.name AS Movie, m.ROTTEN_TOMATOES AS RottenTomatoes, m.IMDB_RATING AS IMDBRating
+            ORDER BY m.ROTTEN_TOMATOES DESC, m.IMDB_RATING DESC
+            LIMIT 10
+         2. user query "How many movies did Christopher Noaln direct?"
+         cypher query: 
+            MATCH (d:Director {{name: "Christopher Nolan"}})<-[:DIRECTED_BY]-(m:Movie)
+            RETURN COUNT(m) AS NumberOfMoviesDirected;
+         3. user query "What are 3 movies from korea with the highest imdb rating?"
+         cypher query:
+            MATCH (m:Movie)-[:COUNTRY_OF_ORIGIN]->(:CountryOfOrigin {{name: "South Korea"}})
+            WHERE m.IMDB_RATING IS NOT NULL AND m.IMDB_RATING <> "N/A"
+            RETURN m.name AS Movie, m.IMDB_RATING AS IMDBRating
+            ORDER BY m.IMDB_RATING DESC
+            LIMIT 3
+         4. user query "What are the 3 highest box office films from the united states in 2023?"
+            MATCH (m:Movie)-[:COUNTRY_OF_ORIGIN]->(:CountryOfOrigin {{name: "United States"}})
+            MATCH (m)-[:RELEASE_YEAR]->(ry:ReleaseYear {{year: "2023"}})
+            WHERE m.BOX_OFFICE IS NOT NULL AND m.BOX_OFFICE <> "N/A"
+            RETURN m.name AS Movie, m.BOX_OFFICE AS BoxOffice
+            ORDER BY m.BOX_OFFICE DESC
+            LIMIT 3
          """),
          ("human", "The query to convert is: {query}")])
     llm_chain = restructured_query_template | model
     restructured_query = llm_chain.invoke({"query": user_input})
-    print(restructured_query)
+    cleaned_query = re.sub(r'```cypher\n(.*?)\n```', r'\1', restructured_query.content, flags=re.DOTALL)
+    print(f"\n{cleaned_query}\n")
+    return cleaned_query
+
+def query_db_and_create_output(cleaned_query, user_query, model, debug):
+        try:
+            with driver.session() as session:
+                retrieved_data = session.run(cleaned_query)
+                results = retrieved_data.data()
+                if results is None:
+                    print("No results found.")
+        except:
+            print("ERROR Querying")
+        if debug:
+            print(f"\n{results}\n")
+        structured_final_output = ChatPromptTemplate([
+            ("system", """
+            You are a helpful assistant that writes answers to user questions using retrieved data from a database.
+            """),
+            ("human", "The original user query: {user_query} and the retrieved data: {retrieved_data}")
+        ])
+        try:
+            llm_chain = structured_final_output | model
+            final_output = llm_chain.invoke({"user_query": user_query, "retrieved_data": results})
+            return final_output.content
+        except:
+            print("Error")
+
 
 def main():
     welcome()
@@ -325,8 +382,9 @@ def main():
     print("Loading DB")
     updated_results = load_neo4j_stats()
     print("DB Loaded!!!")
+    debug = False
     while True:
-        if main_menu_selection(updated_results):
+        if main_menu_selection(updated_results, debug):
             break
         
 if __name__ == "__main__":
