@@ -1,8 +1,8 @@
 import re
 
 def remove_quotes_and_parentheses():
-    with open("clean_movies.csv", 'r', encoding='utf-8') as infile, \
-         open("clean_movies_comma.csv", 'w', encoding='utf-8') as outfile:
+    with open("movies_metadataChanged.csv", 'r', encoding='utf-8') as infile, \
+         open("clean_movies_metadataChanged.csv", 'w', encoding='utf-8') as outfile:
         for line in infile:
             # Remove quotes
             line = line.replace('"', '')

@@ -9,6 +9,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 import re
+import pandas as pd
 
 def welcome():
     print("""
@@ -59,7 +60,7 @@ def main_menu_selection(updated_results, debug):
         print("Changed debug")
 
     if user_choice == '1':
-        add_movie_to_db()
+        get_user_input_method()
         print("Updating the DB Stats")
         updated_results = load_neo4j_stats()
         print("Sucessfully Updated!!!")
@@ -70,8 +71,19 @@ def main_menu_selection(updated_results, debug):
         driver.close()
         return True
 
+def get_user_input_method():
+    user_input = input("""How Do You Want To Add To DB?:\n
+    m - Manual Input\n
+    c - CSV\n
+    """)
+    if user_input.lower() not in ['m', 'c']:
+        print("ERROR ~~~ Incorrect Input ~~~ ERROR")
+    if user_input == 'm':
+        add_movie_to_db_manual()
+    if user_input == 'c':
+        add_movie_to_db_csv()
 
-def add_movie_to_db():
+def add_movie_to_db_manual():
     film_array = user_movie_input()
 
     error_count = 0
@@ -164,6 +176,11 @@ def add_movie_to_db():
     print(f"Overall Time: {overall_end - overall_start:.2f} Seconds\n")
     print(f"Sucess Rate: {((total_count - error_count) / total_count) * 100:.2f}%\n")
     print(f"Failed to Add These Movies: {films_with_error}\n")
+
+def add_movie_to_db_csv():
+    file_location_input = input("CSV File Locaiton: \n")
+    batch_size_input = input("Input Batch Size (default: 5000): \n")
+    
 
 
 def user_movie_input():
