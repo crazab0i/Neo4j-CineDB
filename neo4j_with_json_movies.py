@@ -4,7 +4,10 @@ from neo4j import GraphDatabase
 from dotenv import load_dotenv
 import os
 import time
-
+from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
 
 def welcome():
     print("""
@@ -211,6 +214,12 @@ def batch_insert(tx, batch_data):
 
 def CineGPT(updated_results):
     get_neo4j_stats(updated_results)
+    model = load_langchain_api()
+    user_cinegpt_input = input("What question would you like to ask CineGPT?: \n")
+    query_restructuring(user_cinegpt_input, model)
+
+
+
 
 def load_neo4j_stats():
     query = """
@@ -245,10 +254,73 @@ def get_neo4j_stats(result):
           {total_countries} Countries
 """)
 
+def load_langchain_api():
+    try:
+        load_dotenv("langchain_api.env")
+        os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_KEY")
+        os.environ["LANGCHAIN_TRACING_V2"] = os.getenv("LANGCHAIN_TRACING")
+        os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
+        os.environ["LANGCHAIN_ENDPOINT"] = os.getenv("LANGCHAIN_ENDPOINT")
+        chat_model = ChatOpenAI(model="gpt-3.5-turbo", )
+        print("Loaded AI Environment Sucessfully\n")
+        return chat_model
+    except:
+        print("\nERROR ~~~ AI ENVIRONMENT FILE FAILURE ~~~ ERROR\n")
+    
+def query_restructuring(user_input, model):
+    restructured_query_template = ChatPromptTemplate([
+        ("system", """You are a helpful assistant that rewrites user queries to cypher queries for a movie database in neo4j.
+         You are a helpful assistant that rewrites user queries into Cypher queries for a Neo4j movie database. 
+        Include both nodes, relationships, and relevant properties in the queries. Use a default limit of 10 if the user does not specify.
+        
+        - Node Types and Properties:
+        - Movie: (name, IMDB_RATING, ROTTEN_TOMATOES, METACRITIC_SCORE, BOX_OFFICE, PLOT, AWARDS, IMDB_ID)
+        - Actor: (name, age, gender)
+        - Genre: (name)
+        - Language: (name)
+        - Director: (name)
+        - CountryOfOrigin: (name)
+        - ReleaseYear: (year)
+        - MovieRating: (name)
+
+        - Relationship Types:
+        - ACTED_IN
+        - DIRECTED_BY
+        - HAS_GENRE
+        - RELEASE_YEAR
+        - COUNTRY_OF_ORIGIN
+        - MOVIE_RATING
+        - HAS_LANGUAGE
+
+        - Relationship Directions:
+        - (a:Actor)-[:ACTED_IN]->(m:Movie)
+        - (m:Movie)-[:DIRECTED_BY]->(d:Director)
+        - (m:Movie)-[:HAS_GENRE]->(g:Genre)
+        - (m:Movie)-[:RELEASE_YEAR]->(ry:ReleaseYear)
+        - (m:Movie)-[:COUNTRY_OF_ORIGIN]->(coo:CountryOfOrigin)
+        - (m:movie)-[:MOVIE_RATING]->(r:MovieRating)
+        - (m:Movie)-[r:HAS_LANGUAGE]->(l:Language)
+         
+        Examples:
+        1. User Query: "Find  25 movies released in 2020."
+        Cypher Query: MATCH (m:Movie)-[:RELEASE_YEAR]->(y:ReleaseYear) WHERE y.year="2020" RETURN m.name LIMIT 25
+        2. User Query: "List actors who acted in comedy movies with IMDB rating above 8."
+        Cypher Query: MATCH (a:Actor)-[:ACTED_IN]->(m:Movie {{IMDB_RATING: '8.0'}})-[:HAS_GENRE]->(g:Genre {{name: "Comedy"}}) RETURN a.name LIMIT 10
+        3. User Query: "Find movies directed by Christopher Nolan."
+        Cypher Query: MATCH (m:Movie)-[:DIRECTED_BY]->(d:Director {{name: "Christopher Nolan"}}) RETURN m.name LIMIT 10
+        4. User Query: "When was the movie Dunkirk by Christopher Nolan released?"
+         Cypber Query: MATCH (m:Movie {{name: "Dunkirk"}})-[:DIRECTED_BY]->(d:Director {{name: "Christopher Nolan"}}), 
+            (m)-[:RELEASE_YEAR]->(y:ReleaseYear)
+            RETURN y.year
+         """),
+         ("human", "The query to convert is: {query}")])
+    llm_chain = restructured_query_template | model
+    restructured_query = llm_chain.invoke({"query": user_input})
+    print(restructured_query)
 
 def main():
     welcome()
-    print("Connecting to DB)")
+    print("Connecting to DB")
     connect_to_neo4J_DB()
     print("Loading DB")
     updated_results = load_neo4j_stats()
