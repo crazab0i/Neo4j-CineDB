@@ -9,7 +9,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 import re
-import pandas as pd
+import csv
 
 def welcome():
     print("""
@@ -178,18 +178,121 @@ def add_movie_to_db_manual():
     print(f"Failed to Add These Movies: {films_with_error}\n")
 
 def add_movie_to_db_csv():
-    file_location_input = input("CSV File Locaiton: \n")
+    file_location_input = input("CSV File Location: \n")
     batch_size_input = input("Input Batch Size (default: 5000): \n")
     try:
         batch_size_input_int = int(batch_size_input)
     except:
-        batch_size_input = 5000
+        batch_size_input_int = 5000
     
     batch_data = []
     error_count = 0
     total_count = 0
     films_with_error = []
-    
+    progress_file = "progress_file.txt"
+    start_index = 0
+
+    try:
+        if os.path.exists(progress_file):
+            with open(progress_file, "r", encoding="utf-8") as progress_file_open:
+                start_index = int(progress_file_open.read().strip())
+        with open(file_location_input, "r", encoding="utf-8") as file:
+            reader = csv.DictReader(file)
+            overall_start = time.time()
+            for index, row in enumerate(reader, start=1):
+                if index <= start_index:
+                    continue
+                
+                total_count += 1
+                film_start = time.time()
+                batch_data_start = time.time()
+                if total_count >= batch_size_input_int:
+                    break
+                construct_url_start = time.time()
+                complete_url = construct_url(row["title"])
+                construct_url_end = time.time()
+                print(f"URL Construction Time: {construct_url_end - construct_url_start:2f} Seconds")
+                
+                json_time_start = time.time()
+                json_response = requests.get(complete_url)
+
+                if json_response.status_code == 200:
+                    movie_data = json_response.json()
+                else:
+                    error_count += 1
+                    films_with_error.append(row["title"])
+                    print(f"ERROR ~~~ JSON Code: {json_response.status_code} ~~~ ERROR\n")
+                    continue
+
+                json_time_end = time.time()
+                print(f"JSON Load Time: {json_time_end - json_time_start:.2f} Seconds")
+
+                try:
+                    movie = movie_data["Title"]
+                    director = movie_data["Director"]
+                    movie_release_year = movie_data["Year"]
+                    country_of_origin = movie_data["Country"].split(", ")[0]
+                    movie_rating = movie_data["Rated"]
+                    imdb_score = movie_data["imdbRating"]
+                    rotten_tomato_score = next((rating["Value"] for rating in movie_data["Ratings"] if rating["Source"] == "Rotten Tomatoes"), "N/A")
+                    metacritic_score = movie_data["Metascore"]
+                    box_office = movie_data["BoxOffice"]
+                    imdb_id = movie_data["imdbID"]
+                    plot = movie_data["Plot"]
+                    awards = movie_data["Awards"]
+                    actor_list = movie_data["Actors"].split(", ")
+                    genre_list = movie_data["Genre"].split(", ")
+                    language_list = movie_data["Language"].split(", ")
+                except:
+                    error_count += 1
+                    films_with_error.append(row["title"])
+                    print("\nERROR ~~~ Failed To Retrieve JSON ~~~ ERROR\n")
+                    continue
+
+                batch_data.append({
+                        "movie": movie,
+                        "director": director,
+                        "movie_release_year": movie_release_year,
+                        "country_of_origin": country_of_origin,
+                        "movie_rating": movie_rating,
+                        "imdb_score": imdb_score,
+                        "rotten_tomato_score": rotten_tomato_score,
+                        "metacritic_score": metacritic_score,
+                        "box_office": box_office,
+                        "imdb_id": imdb_id,
+                        "plot": plot,
+                        "awards": awards,
+                        "actor_list": actor_list,
+                        "genre_list": genre_list,
+                        "language_list": language_list
+                    })
+                
+                film_end_time = time.time()
+                print(f"\nFilm Retrieval Time: {film_end_time-film_start:2f} Seconds\n")
+                
+                if len(batch_data) >= 20:
+                    with driver.session() as session:
+                        session.execute_write(batch_insert, batch_data)
+                        batch_data_end = time.time()
+                        print(f"\nBatch of 20 Movies Inserted, Time: {batch_data_end-batch_data_start:.2f} Seconds\n")
+                        batch_data.clear()
+
+            if batch_data:
+                with driver.session() as session:
+                        session.execute_write(batch_insert, batch_data)
+                        batch_data_end = time.time()
+                        print(f"\nBatch of Movies Inserted, Time: {batch_data_end-batch_data_start:.2f} Seconds\n")
+                        batch_data.clear()
+
+            with open(progress_file, "w", encoding="utf-8") as progress_file_write:
+                progress_file_write.write(str(total_count))
+
+            overall_end = time.time()
+            print(f"Overall Time: {overall_end - overall_start:.2f} Seconds\n")
+            print(f"Sucess Rate: {((total_count - error_count) / total_count) * 100:.2f}%\n")
+            print(f"Failed to Add These Movies: {films_with_error}\n")
+    except:
+        print("ERROR ~~~ CANNOT READ CSV FILE ~~~ ERROR")
     
 
 
@@ -307,6 +410,7 @@ def query_restructuring(user_input, model, debug):
         ("system", """
          You are a helpful assistant that rewrites user queries into Cypher queries for a Neo4j movie database. 
         Include both nodes, relationships, and relevant properties in the queries. Use a default limit of 10 if the user does not specify.
+        Rewrites characters or titles that will fit actor names or imdb movie titles.
         
         - Node Types and Properties:
         - Movie: (name, IMDB_RATING, ROTTEN_TOMATOES, METACRITIC_SCORE, BOX_OFFICE, PLOT, AWARDS, IMDB_ID)
