@@ -292,6 +292,8 @@ def add_movie_to_db_csv():
             print(f"Failed to Add These Movies: {films_with_error}\n")
     except:
         print("ERROR ~~~ CANNOT READ CSV FILE ~~~ ERROR")
+        with open(progress_file, "w", encoding="utf-8") as progress_file_write:
+                progress_file_write.write(str(index))
     
 
 
