@@ -156,7 +156,7 @@ def add_movie_to_db_manual():
             })
         
         film_end_time = time.time()
-        print(f"\nFilm Retrieval Time: {film_end_time-film_start:2f} Seconds\n")
+        print(f"Film Retrieval Time: {film_end_time-film_start:2f} Seconds\n")
         
         if len(batch_data) >= 10:
             with driver.session() as session:
@@ -193,9 +193,8 @@ def add_movie_to_db_csv():
     start_index = 0
 
     try:
-        if os.path.exists(progress_file):
-            with open(progress_file, "r", encoding="utf-8") as progress_file_open:
-                start_index = int(progress_file_open.read().strip())
+        with open(progress_file, "r", encoding="utf-8") as progress_file_open:
+            start_index = int(progress_file_open.read().strip())
         with open(file_location_input, "r", encoding="utf-8") as file:
             reader = csv.DictReader(file)
             overall_start = time.time()
@@ -268,7 +267,7 @@ def add_movie_to_db_csv():
                     })
                 
                 film_end_time = time.time()
-                print(f"\nFilm Retrieval Time: {film_end_time-film_start:2f} Seconds\n")
+                print(f"Film Retrieval Time: {film_end_time-film_start:2f} Seconds\n")
                 
                 if len(batch_data) >= 20:
                     with driver.session() as session:
@@ -285,7 +284,7 @@ def add_movie_to_db_csv():
                         batch_data.clear()
 
             with open(progress_file, "w", encoding="utf-8") as progress_file_write:
-                progress_file_write.write(str(total_count))
+                progress_file_write.write(str(index))
 
             overall_end = time.time()
             print(f"Overall Time: {overall_end - overall_start:.2f} Seconds\n")
